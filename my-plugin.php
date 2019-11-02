@@ -108,6 +108,22 @@ function my_plugin_add_subscriber_metaboxes( $post ) {
 add_action('add_meta_boxes_my_plugin_subscriber', 'my_plugin_add_subscriber_metaboxes');
 
 function my_plugin_subscriber_matabox() {
+	
+	global $post;
+	
+	$post_id = $post->ID;	
+			
+	// wp secure input field function
+	wp_nonce_field(basename(__FILE__), 'my_plugin_subscriber_nonce');
+	
+	// get input fields values from db
+	$first_name = (!empty(get_post_meta($post_id, 'my_plugin_first_name', true))) ? get_post_meta($post_id, 'my_plugin_first_name', true) : '';
+	$last_name = (!empty(get_post_meta($post_id, 'my_plugin_last_name', true))) ? get_post_meta($post_id, 'my_plugin_last_name', true) : '';
+	$email = (!empty(get_post_meta($post_id, 'my_plugin_email', true))) ? get_post_meta($post_id, 'my_plugin_email', true) : '';
+	
+	$lists = (!empty(get_post_meta($post_id, 'my_plugin_list', false))) ? get_post_meta($post_id, 'my_plugin_list', false) : [];
+		
+	
 	?>
 	
 	<style type="text/css" media="screen">
@@ -132,18 +148,18 @@ function my_plugin_subscriber_matabox() {
 	<div class="my-plugin-field-row">
 		<div class="my-plugin-field-container">
 			<label>First Name<span>*</span></label>
-			<input type="text" name="my_plugin_first_name" required="required" class="widefat" />
+			<input type="text" name="my_plugin_first_name" required="required" class="widefat" value="<?php echo $first_name; ?>" />
 		</div>
 		<div class="my-plugin-field-container">
 			<label>Last Name<span>*</span></label>
-			<input type="text" name="my_plugin_last_name" required="required" class="widefat" />
+			<input type="text" name="my_plugin_last_name" required="required" class="widefat" value="<?php echo $last_name; ?>" />
 		</div>		
 	</div>
 	
 	<div class="my-plugin-field-row">
 		<div class="my-plugin-field-container">
 			<label>Email<span>*</span></label>
-			<input type="email" name="my_plugin_email" required="required" class="widefat" />
+			<input type="email" name="my_plugin_email" required="required" class="widefat" value="<?php echo $email; ?>" />
 		</div>	
 	</div>
 	
@@ -159,11 +175,14 @@ function my_plugin_subscriber_matabox() {
 				$list_query = $wpdb->get_results("SELECT ID,post_title FROM {$wpdb->posts} WHERE post_type = 'my_plugin_list' AND post_status IN ('draft', 'publish')");
 				
 				if(!is_null($list_query)) {
-					foreach($list_query as $list) { ?>
+					
+					foreach($list_query as $list) {
+						 
+						$checked = ( in_array($list->ID, $lists) ) ? 'checked="checked"' : '';	?>
 				
 				<li>
 					<label>
-						<input type="checkbox" name="my_plugin_list[]" value="<?php echo $list->ID ?>" />
+						<input type="checkbox" name="my_plugin_list[]" value="<?php echo $list->ID ?>" <?php echo $checked; ?> />
 						<?php echo $list->post_title; ?>
 					</label>
 				</li>
@@ -183,8 +202,77 @@ function my_plugin_subscriber_matabox() {
 	
 }
 
+function my_plugin_save_subscriber_data($post_id, $post) {
+	
+	// verify nonce
+	if(!isset($_POST['my_plugin_subscriber_nonce']) || !wp_verify_nonce($_POST['my_plugin_subscriber_nonce'], basename(__FILE__))) {
+		return $post_id;
+	}
+	
+	// get post type object
+	$post_type = get_post_type_object($post->post_type);
+	
+	// check if current user have permission to edit
+	if(!current_user_can($post_type->cap->edit_post, $post_id)) {
+		return $post_id;
+	}
+	
+	// get posted data and sanitize it
+	$first_name = (isset($_POST['my_plugin_first_name'])) ? sanitize_text_field($_POST['my_plugin_first_name']) : '';
+	$last_name = (isset($_POST['my_plugin_last_name'])) ? sanitize_text_field($_POST['my_plugin_last_name']) : '';
+	$email = (isset($_POST['my_plugin_email'])) ? sanitize_text_field($_POST['my_plugin_email']) : '';
+	$lists = (isset($_POST['my_plugin_list'])) && is_array($_POST['my_plugin_list']) ? (array) $_POST['my_plugin_list'] : [];
+	
+
+	// update post meta
+	update_post_meta($post_id, 'my_plugin_first_name', $first_name);
+	update_post_meta($post_id, 'my_plugin_last_name', $last_name);
+	update_post_meta($post_id, 'my_plugin_email', $email);
+	
+	// delete existing post meta
+	delete_post_meta($post_id, 'my_plugin_list');
+	
+	// add new meta
+	if(!empty($lists)) {
+		foreach($lists as $index => $list_id) {
+			
+			// add list relational meta
+			add_post_meta($post_id, 'my_plugin_list', $list_id, false); // not unique meta key
+		}
+	}
+	
+	
+	
+}
+
+add_action('save_post', 'my_plugin_save_subscriber_data', 10, 2);
 
 
+// add post title to subscriber
+function my_plugin_edit_post_change_title() {
+	
+	global $post;
+	
+	if($post->post_type == 'my_plugin_subscriber') {
+		
+		add_filter(
+			'the_title',
+			'my_plugin_subscriber_title',
+			100,
+			2
+		);
+	}
+}
+
+add_action(
+	'admin_head-edit.php',
+	'my_plugin_edit_post_change_title'
+);
+
+function my_plugin_subscriber_title($title, $post_id) {
+	$new_title = get_post_meta($post_id, 'my_plugin_first_name', true) . ' ' . get_post_meta($post_id, 'my_plugin_last_name', true);
+	return $new_title;
+}
 
 
 
